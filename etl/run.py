@@ -16,7 +16,6 @@ from app.db import SessionLocal
 from app.models import Chunk, Interaction, Material
 from app.services.embeddings import encode_passages_sync
 from etl.mapping import (
-    ENTITY_TYPE_KINDS,
     FORMATS,
     PUBLISHED_STATUS,
     build_url,

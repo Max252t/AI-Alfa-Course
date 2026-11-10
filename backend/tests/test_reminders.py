@@ -6,7 +6,12 @@ import pytest
 
 from app.services import tax_calendar as tc
 from app.services.links import hash_tg_id, with_utm
-from app.services.reminders import detect_type, manage_command, parse_lead_and_time, tax_next_run
+from app.services.reminders import (
+    detect_type,
+    manage_command,
+    parse_lead_and_time,
+    tax_next_run,
+)
 
 PATH = str(Path(__file__).resolve().parents[2] / "data" / "tax_calendar.yaml")
 TZ = "Europe/Moscow"

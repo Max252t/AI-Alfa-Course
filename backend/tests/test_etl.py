@@ -1,4 +1,10 @@
-from etl.mapping import build_url, can_index_text, infer_stages, is_paid, parse_duration_minutes
+from etl.mapping import (
+    build_url,
+    can_index_text,
+    infer_stages,
+    is_paid,
+    parse_duration_minutes,
+)
 from etl.text import chunk_text, html_to_text
 
 

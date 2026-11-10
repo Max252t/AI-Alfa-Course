@@ -1,6 +1,11 @@
 import pytest
 
-from app.services.intent import asks_paid_retell, classify, looks_like_injection, rule_intent
+from app.services.intent import (
+    asks_paid_retell,
+    classify,
+    looks_like_injection,
+    rule_intent,
+)
 from app.services.llm import LLMProvider, LLMUnavailable
 
 

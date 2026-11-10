@@ -1,4 +1,11 @@
-from app.services.rag import Hit, combine, fallback_answer, format_sources, relevant, to_tsquery
+from app.services.rag import (
+    Hit,
+    combine,
+    fallback_answer,
+    format_sources,
+    relevant,
+    to_tsquery,
+)
 from app.services.recommender import pick, score_hit, wants_course
 
 

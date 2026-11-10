@@ -3,7 +3,12 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from app.services.schedule import Schedule, apply_quiet_hours, next_occurrence, parse_schedule
+from app.services.schedule import (
+    Schedule,
+    apply_quiet_hours,
+    next_occurrence,
+    parse_schedule,
+)
 
 TZ = "Europe/Moscow"
 NOW = datetime(2026, 3, 4, 12, 0, tzinfo=ZoneInfo(TZ))
