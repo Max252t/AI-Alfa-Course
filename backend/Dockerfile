@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ ./backend/
 COPY etl/ ./etl/
+COPY eval/ ./eval/
 COPY data/tax_calendar.yaml ./data/tax_calendar.yaml
 
 WORKDIR /app/backend
