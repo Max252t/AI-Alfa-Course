@@ -24,10 +24,11 @@ class Settings(BaseSettings):
 
     embedding_model: str = "intfloat/multilingual-e5-base"
     embedding_dim: int = 768
-    relevance_threshold: float = 0.35
+    relevance_threshold: float = 0.6
 
     platform_base_url: str = "https://alfa-course.example"
     default_tz: str = "Europe/Moscow"
+    telegram_bot_token: str = ""
     tax_calendar_path: str = "/app/data/tax_calendar.yaml"
 
 

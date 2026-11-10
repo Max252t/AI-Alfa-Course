@@ -33,6 +33,7 @@ class User(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     tg_id_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     tz: Mapped[str] = mapped_column(String(64), default="Europe/Moscow")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_active_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
