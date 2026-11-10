@@ -41,6 +41,7 @@ class User(Base):
     quiet_to: Mapped[int] = mapped_column(Integer, default=9)
     ab_group: Mapped[str] = mapped_column(String(1), default="B")
     last_proactive_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    state: Mapped[dict] = mapped_column(JSONB, default=dict)
 
 
 class Profile(Base):
