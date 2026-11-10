@@ -95,11 +95,19 @@ def parse_schedule(text: str, now: datetime, tz: str = "Europe/Moscow") -> Sched
         result.weekdays = weekdays
     elif re.search(r"ежеквартально|каждый квартал|раз в квартал", lowered):
         result.freq = "quarterly"
-    elif re.search(r"ежемесячно|каждый месяц|раз в месяц|кажд\w+ месяц", lowered):
+    elif re.search(r"ежемесячно|каждый месяц|раз в (?:\S+ )?месяц|кажд\w+ месяц", lowered):
         result.freq = "monthly"
         result.interval = interval
 
-    if result.freq is None:
+    relative = re.search(r"\b(послезавтра|завтра|сегодня)\b", lowered)
+    if result.freq is None and relative and result.send_time:
+        offset = {"сегодня": 0, "завтра": 1, "послезавтра": 2}[relative.group(1)]
+        hh, mm = map(int, result.send_time.split(":"))
+        run_at = datetime.combine(local_now.date() + timedelta(days=offset), time(hh, mm), tzinfo=zone)
+        if run_at <= local_now:
+            run_at += timedelta(days=1)
+        result.run_at = run_at
+    elif result.freq is None:
         parsed = dateparser.parse(
             lowered,
             languages=["ru"],
