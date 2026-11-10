@@ -1,0 +1,10 @@
+line-length = 130
+target-version = "py311"
+extend-exclude = [".venv", "data"]
+
+[lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[lint.isort]
+known-first-party = ["app", "etl", "bot"]

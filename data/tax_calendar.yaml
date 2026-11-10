@@ -1,0 +1,108 @@
+year_note: "Справочные сроки, сверены с общим порядком ФНС. Перед оплатой проверьте даты в личном кабинете nalog.ru."
+weekend_shift: true
+events:
+  - id: usn_advance
+    title: "Авансовый платёж по УСН"
+    regimes: [usn_income, usn_income_expense]
+    legal_forms: [ip, ooo]
+    rule: {type: fixed, dates: [[4, 28], [7, 28], [10, 28]]}
+    lead_days: 3
+    topic: "УСН"
+  - id: usn_year_ooo
+    title: "Налог по УСН за год (для ООО)"
+    regimes: [usn_income, usn_income_expense]
+    legal_forms: [ooo]
+    rule: {type: fixed, dates: [[3, 28]]}
+    lead_days: 5
+    topic: "УСН"
+  - id: usn_year_ip
+    title: "Налог по УСН за год (для ИП)"
+    regimes: [usn_income, usn_income_expense]
+    legal_forms: [ip]
+    rule: {type: fixed, dates: [[4, 28]]}
+    lead_days: 5
+    topic: "УСН"
+  - id: usn_decl_ooo
+    title: "Декларация по УСН за год (для ООО)"
+    regimes: [usn_income, usn_income_expense]
+    legal_forms: [ooo]
+    rule: {type: fixed, dates: [[3, 25]]}
+    lead_days: 5
+    topic: "УСН"
+  - id: usn_decl_ip
+    title: "Декларация по УСН за год (для ИП)"
+    regimes: [usn_income, usn_income_expense]
+    legal_forms: [ip]
+    rule: {type: fixed, dates: [[4, 25]]}
+    lead_days: 5
+    topic: "УСН"
+  - id: ip_insurance_fixed
+    title: "Фиксированные страховые взносы ИП за себя"
+    regimes: [usn_income, usn_income_expense, patent, osn]
+    legal_forms: [ip]
+    rule: {type: fixed, dates: [[12, 31]]}
+    lead_days: 7
+    topic: "страховые взносы"
+  - id: ip_insurance_one_percent
+    title: "Взносы 1% с дохода свыше 300 000 ₽"
+    regimes: [usn_income, usn_income_expense, patent, osn]
+    legal_forms: [ip]
+    rule: {type: fixed, dates: [[7, 1]]}
+    lead_days: 7
+    topic: "страховые взносы"
+  - id: npd_monthly
+    title: "Налог на профессиональный доход (самозанятые)"
+    regimes: [npd]
+    legal_forms: [selfemployed, ip]
+    rule: {type: monthly, day: 28}
+    lead_days: 2
+    topic: "самозанятость"
+  - id: ausn_monthly
+    title: "Налог по АУСН"
+    regimes: [ausn]
+    legal_forms: [ip, ooo]
+    rule: {type: monthly, day: 25}
+    lead_days: 2
+    topic: "АУСН"
+  - id: patent_payment
+    title: "Оплата патента"
+    regimes: [patent]
+    legal_forms: [ip]
+    rule: {type: manual}
+    lead_days: 5
+    topic: "патент"
+  - id: osn_vat
+    title: "Уплата НДС (одна треть за квартал)"
+    regimes: [osn]
+    legal_forms: [ip, ooo]
+    rule: {type: monthly, day: 28}
+    lead_days: 3
+    topic: "НДС"
+  - id: osn_ndfl_advance_ip
+    title: "Авансовый платёж по НДФЛ (для ИП на ОСН)"
+    regimes: [osn]
+    legal_forms: [ip]
+    rule: {type: fixed, dates: [[4, 28], [7, 28], [10, 28]]}
+    lead_days: 3
+    topic: "НДФЛ"
+  - id: osn_ndfl_year_ip
+    title: "НДФЛ за год (для ИП на ОСН)"
+    regimes: [osn]
+    legal_forms: [ip]
+    rule: {type: fixed, dates: [[7, 15]]}
+    lead_days: 5
+    topic: "НДФЛ"
+  - id: osn_profit_advance_ooo
+    title: "Авансовый платёж по налогу на прибыль (для ООО)"
+    regimes: [osn]
+    legal_forms: [ooo]
+    rule: {type: fixed, dates: [[4, 28], [7, 28], [10, 28]]}
+    lead_days: 3
+    topic: "налог на прибыль"
+  - id: osn_profit_year_ooo
+    title: "Налог на прибыль за год (для ООО)"
+    regimes: [osn]
+    legal_forms: [ooo]
+    rule: {type: fixed, dates: [[3, 28]]}
+    lead_days: 5
+    topic: "налог на прибыль"
