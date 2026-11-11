@@ -325,7 +325,8 @@ async def flow_callback(
         if rem.get("schedule") and rem["type"] != "tax":
             old = sched_from_dict(rem["schedule"])
             if old.run_at:
-                rem["schedule"] = sched_to_dict(parse_schedule(f"завтра в {old.send_time or '10:00'}", now, user.tz))
+                old.run_at = old.run_at.replace(tzinfo=ZoneInfo(user.tz))
+                rem["schedule"] = sched_to_dict(old)
                 set_state(user, rem=rem)
     elif action == "when":
         key = parts[2]
