@@ -413,6 +413,7 @@ async def reminder_action(session: AsyncSession, user: User, data: str, now: dat
         return ChatResponse(text="Напоминание удалено.")
     if action == "snooze":
         r.next_run_at = (now + timedelta(days=1)).astimezone(ZoneInfo(user.tz)).replace(second=0, microsecond=0)
+        r.active = True
         await log_event(session, user.id, "reminder_snoozed", {})
         return ChatResponse(text="Отложил на завтра.")
     if action == "freqmenu":
