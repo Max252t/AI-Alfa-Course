@@ -254,6 +254,9 @@ async def flow_text(
         set_state(user, tz_set=True)
         return await next_step(session, user, profile, now)
 
+    if step in {"regime", "legal", "when", "patent_date"} and ("?" in text or len(text.split()) >= 4):
+        clear_keys(user, "flow", "rem")
+        return None
     rem["tries"] = rem.get("tries", 0) + 1
     if rem["tries"] >= 2:
         return await cancel(user, "Не получилось понять. Давайте начнём заново — напишите, что и когда напомнить.")
