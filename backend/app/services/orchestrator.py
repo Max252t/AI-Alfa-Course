@@ -278,7 +278,7 @@ async def answer_question(
         return await out_of_scope_reply(session, user, text, free, best)
 
     prof = profile_dict(profile)
-    answer, used_llm = await generate_answer(get_llm(), text, rel, summarize(prof), history)
+    answer, used_llm = await generate_answer(get_llm(), text, rel[:3], summarize(prof), history)
     state = user.state or {}
     body = answer + "\n\nИсточники:\n" + sources_text(rel[:3], user.tg_id_hash)
 
