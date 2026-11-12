@@ -18,5 +18,6 @@ async def reply(message: Message, response: dict) -> None:
     await message.answer(
         build_text(response),
         reply_markup=build_markup(response),
+        parse_mode="HTML",
         disable_web_page_preview=True,
     )
