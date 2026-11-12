@@ -6,7 +6,6 @@ from app.config import get_settings
 from app.schemas import Button
 
 log = logging.getLogger(__name__)
-# HTTP request URLs contain the bot token. Do not emit transport request logs.
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
@@ -40,6 +39,5 @@ async def send_message(chat_id: int, text: str, buttons: list[list[Button]] | No
         response.raise_for_status()
         return True
     except httpx.HTTPError as exc:
-        # Exception messages and tracebacks can include the authenticated URL.
         log.warning("failed to send telegram message (%s)", type(exc).__name__)
         return False
