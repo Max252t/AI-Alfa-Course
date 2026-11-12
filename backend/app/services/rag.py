@@ -164,7 +164,8 @@ async def generate_answer(
         f"<profile>{profile_summary}</profile>\n"
         f"<history>{chr(10).join(history[-5:])}</history>\n"
         f"<context>\n{build_context(hits)}\n</context>\n"
-        f"Вопрос: {question}"
+        f"Вопрос: {question}\n"
+        "Ответь по-русски, только русскими словами."
     )
     try:
         answer = await llm.complete(SYSTEM_PROMPT, prompt, temperature=0.2)
