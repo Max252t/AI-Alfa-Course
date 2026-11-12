@@ -139,6 +139,14 @@ def build_context(hits: list[Hit]) -> str:
     return "\n\n".join(f"[{i}] {h.title}\n{h.chunk}" for i, h in enumerate(hits, start=1))
 
 
+CITATION = re.compile(r"[ \t]*\[(\d+)\]")
+
+
+def strip_invalid_citations(answer: str, count: int) -> str:
+    cleaned = CITATION.sub(lambda m: m.group(0) if 1 <= int(m.group(1)) <= count else "", answer)
+    return cleaned.strip()
+
+
 def format_sources(hits: list[Hit]) -> str:
     lines = []
     for i, h in enumerate(hits, start=1):
@@ -174,7 +182,7 @@ async def generate_answer(
         if has_foreign_script(answer):
             log.warning("llm answered with foreign script, using fallback answer")
             return fallback_answer(hits), False
-        return answer.strip(), True
+        return strip_invalid_citations(answer, len(hits)), True
     except LLMUnavailable:
         log.warning("llm unavailable, using fallback answer")
         return fallback_answer(hits), False
