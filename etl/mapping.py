@@ -1,7 +1,7 @@
 import re
 
 URL_TEMPLATES = {
-    "article": "/articles/{url}",
+    "article": "/articles/{url}/",
     "course": "/courses/{url}",
     "document": "/documents/{url}",
     "webinar": "/webinars/{url}",
