@@ -6,6 +6,8 @@ from app.config import get_settings
 from app.schemas import Button
 
 log = logging.getLogger(__name__)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 def _keyboard(buttons: list[list[Button]]) -> dict:
@@ -36,6 +38,6 @@ async def send_message(chat_id: int, text: str, buttons: list[list[Button]] | No
             return False
         response.raise_for_status()
         return True
-    except httpx.HTTPError:
-        log.exception("failed to send telegram message")
+    except httpx.HTTPError as exc:
+        log.warning("failed to send telegram message (%s)", type(exc).__name__)
         return False
