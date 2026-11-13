@@ -461,12 +461,23 @@ async def profile_callback(session: AsyncSession, user: User, data: str) -> Chat
         conf.pop(slot, None)
         profile.slot_confidence = conf
         return ChatResponse(text=f"Очистил: {SLOT_LABELS[slot].lower()}.")
-    apply_slots(profile, {slot: value}, 1.0)
+    cleaned = clean_slots({slot: value})
+    if slot not in cleaned:
+        return ChatResponse(text="Не понял, что выбрать.")
+    apply_slots(profile, cleaned, 1.0)
     label = SLOT_OPTIONS.get(slot, {}).get(value, value)
     return ChatResponse(text=f"Записал: {SLOT_LABELS[slot].lower()} — {label}.")
 
 
 async def handle_callback(session: AsyncSession, req: CallbackRequest) -> ChatResponse:
+    try:
+        return await dispatch_callback(session, req)
+    except (ValueError, IndexError, KeyError):
+        log.warning("malformed callback data: %r", req.data[:80])
+        return ChatResponse(text="Не понял команду.")
+
+
+async def dispatch_callback(session: AsyncSession, req: CallbackRequest) -> ChatResponse:
     now = utcnow()
     user = await get_user(session, req.tg_id, req.chat_id)
     profile = await get_profile(session, user)
@@ -483,13 +494,13 @@ async def handle_callback(session: AsyncSession, req: CallbackRequest) -> ChatRe
     if prefix == "ob":
         parts = data.split(":")
         if parts[1] == "stage":
-            apply_slots(profile, {"stage": parts[2]}, 1.0)
+            apply_slots(profile, clean_slots({"stage": parts[2]}), 1.0)
             skip = {"start"} if parts[2] in RUNNING_STAGES else set()
             buttons = rows([Button(text=label, data=f"ob:task:{key}") for key, label in TASK_LABELS.items() if key not in skip], 2)
             buttons.append([Button(text="Пропустить", data="ob:skip")])
             return ChatResponse(text="Что сейчас важнее всего?", buttons=buttons)
         if parts[1] == "task":
-            apply_slots(profile, {"main_task": parts[2]}, 1.0)
+            apply_slots(profile, clean_slots({"main_task": parts[2]}), 1.0)
         return ChatResponse(text="Спасибо! Теперь задайте вопрос или выберите пример.", buttons=example_buttons(profile.stage))
     if prefix == "clar":
         pending = state.get("pending")
@@ -505,7 +516,10 @@ async def handle_callback(session: AsyncSession, req: CallbackRequest) -> ChatRe
         )
     if prefix == "slot":
         _, slot, value = data.split(":")
-        apply_slots(profile, {slot: value}, 1.0)
+        cleaned = clean_slots({slot: value})
+        if slot not in cleaned:
+            return ChatResponse(text="Не понял команду.")
+        apply_slots(profile, cleaned, 1.0)
         await log_event(session, user.id, "profile_updated", {"slots": [slot]})
         return ChatResponse(text="Спасибо, учту в следующих ответах.")
     if prefix == "fb":

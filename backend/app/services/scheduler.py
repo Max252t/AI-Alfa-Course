@@ -109,8 +109,9 @@ async def dispatch_due() -> int:
         ids = list(result.scalars())
         for reminder_id in ids:
             try:
-                r = await session.get(Reminder, reminder_id)
-                if r is None or not r.active:
+                r = await session.get(Reminder, reminder_id, with_for_update={"skip_locked": True})
+                if r is None or not r.active or r.next_run_at is None or r.next_run_at > now:
+                    await session.rollback()
                     continue
                 if await process_reminder(session, r, now):
                     sent += 1
