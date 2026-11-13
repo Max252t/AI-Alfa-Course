@@ -91,7 +91,15 @@ class Chunk(Base):
         TSVECTOR, Computed("to_tsvector('russian', text)", persisted=True)
     )
 
-    __table_args__ = (Index("ix_chunks_tsv", "tsv", postgresql_using="gin"),)
+    __table_args__ = (
+        Index("ix_chunks_tsv", "tsv", postgresql_using="gin"),
+        Index(
+            "ix_chunks_embedding",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )
 
 
 class Interaction(Base):
