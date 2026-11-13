@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -16,7 +17,7 @@ from app.schemas import (
     ProfileOut,
     ReminderOut,
 )
-from app.services import flows, orchestrator
+from app.services import embeddings, flows, orchestrator
 from app.services.context import get_profile, get_user, profile_dict, utcnow
 from app.services.links import hash_tg_id
 from app.services.rag import search
@@ -45,10 +46,19 @@ async def session_scope():
             raise
 
 
+async def warm_embeddings() -> None:
+    try:
+        await asyncio.to_thread(embeddings.warmup)
+    except Exception:
+        logging.getLogger(__name__).exception("embedding model warmup failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler = start_scheduler()
+    warmup = asyncio.create_task(warm_embeddings())
     yield
+    warmup.cancel()
     scheduler.shutdown(wait=False)
 
 
