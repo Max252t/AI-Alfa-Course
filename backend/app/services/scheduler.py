@@ -13,7 +13,7 @@ from app.services import tax_calendar as tc
 from app.services.context import log_event, utcnow
 from app.services.flows import reminder_link_material
 from app.services.links import visible_url, with_utm
-from app.services.notify import send_message
+from app.services.notify import UserBlocked, send_message
 from app.services.reminders import compute_next_run
 from app.services.schedule import apply_quiet_hours
 
@@ -62,42 +62,62 @@ def reminder_buttons(r: Reminder) -> list[list[Button]]:
     ]
 
 
+async def process_reminder(session: AsyncSession, r: Reminder, now: datetime) -> bool:
+    user = await session.get(User, r.user_id)
+    if user is None or user.chat_id is None:
+        r.active = False
+        return False
+    if not user.notifications_enabled:
+        r.next_run_at = next_allowed_slot(now, user)
+        return False
+    shifted = apply_quiet_hours(now, user.tz, user.quiet_from, user.quiet_to)
+    if shifted > now:
+        r.next_run_at = shifted
+        return False
+    if r.type != "tax" and daily_limit_hit(now, user):
+        r.next_run_at = next_allowed_slot(now, user)
+        return False
+    text = await build_text(session, r, user)
+    try:
+        ok = await send_message(user.chat_id, text, reminder_buttons(r))
+    except UserBlocked:
+        user.notifications_enabled = False
+        r.next_run_at = next_allowed_slot(now, user)
+        await log_event(session, user.id, "bot_blocked", {})
+        return False
+    if not ok:
+        r.next_run_at = now + timedelta(minutes=30)
+        return False
+    user.last_proactive_at = now
+    nxt = compute_next_run(r, now + timedelta(minutes=1), user.tz, user)
+    if nxt is None or (r.type != "tax" and not r.freq):
+        r.active = False
+        r.next_run_at = None
+    else:
+        r.next_run_at = nxt
+    await log_event(session, user.id, "reminder_sent", {"type": r.type})
+    return True
+
+
 async def dispatch_due() -> int:
     sent = 0
     now = utcnow()
     async with SessionLocal() as session:
         result = await session.execute(
-            select(Reminder).where(Reminder.active.is_(True), Reminder.next_run_at <= now).limit(100)
+            select(Reminder.id).where(Reminder.active.is_(True), Reminder.next_run_at <= now).limit(100)
         )
-        for r in result.scalars():
-            user = await session.get(User, r.user_id)
-            if user is None or user.chat_id is None:
-                r.active = False
-                continue
-            if not user.notifications_enabled:
-                r.next_run_at = next_allowed_slot(now, user)
-                continue
-            shifted = apply_quiet_hours(now, user.tz, user.quiet_from, user.quiet_to)
-            if shifted > now:
-                r.next_run_at = shifted
-                continue
-            if daily_limit_hit(now, user):
-                r.next_run_at = next_allowed_slot(now, user)
-                continue
-            ok = await send_message(user.chat_id, await build_text(session, r, user), reminder_buttons(r))
-            if not ok:
-                r.next_run_at = now + timedelta(minutes=30)
-                continue
-            user.last_proactive_at = now
-            sent += 1
-            await log_event(session, user.id, "reminder_sent", {"type": r.type})
-            nxt = compute_next_run(r, now + timedelta(minutes=1), user.tz, user)
-            if nxt is None or (r.type != "tax" and not r.freq):
-                r.active = False
-                r.next_run_at = None
-            else:
-                r.next_run_at = nxt
-        await session.commit()
+        ids = list(result.scalars())
+        for reminder_id in ids:
+            try:
+                r = await session.get(Reminder, reminder_id)
+                if r is None or not r.active:
+                    continue
+                if await process_reminder(session, r, now):
+                    sent += 1
+                await session.commit()
+            except Exception:
+                log.exception("reminder dispatch failed")
+                await session.rollback()
     return sent
 
 

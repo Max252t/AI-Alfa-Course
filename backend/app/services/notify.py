@@ -10,6 +10,10 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
+class UserBlocked(Exception):
+    pass
+
+
 def _keyboard(buttons: list[list[Button]]) -> dict:
     return {
         "inline_keyboard": [
@@ -35,7 +39,7 @@ async def send_message(chat_id: int, text: str, buttons: list[list[Button]] | No
             response = await client.post(f"https://api.telegram.org/bot{token}/sendMessage", json=payload)
         if response.status_code == 403:
             log.info("user blocked the bot")
-            return False
+            raise UserBlocked
         response.raise_for_status()
         return True
     except httpx.HTTPError as exc:
