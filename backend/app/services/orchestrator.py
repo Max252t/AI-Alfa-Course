@@ -186,14 +186,14 @@ def feedback_buttons(with_remind: bool = True) -> list[list[Button]]:
     return result
 
 
-async def handle_chat(session: AsyncSession, req: ChatRequest) -> ChatResponse:
+async def handle_chat(session: AsyncSession, req: ChatRequest, force_answer: bool = False) -> ChatResponse:
     now = utcnow()
     user = await get_user(session, req.tg_id, req.chat_id)
     profile = await get_profile(session, user)
     masked = mask_pii(req.text.strip())
     history = await recent_history(session, user.id)
     await add_turn(session, user.id, "user", masked)
-    response, intent_name = await route(session, user, profile, masked, history, now)
+    response, intent_name = await route(session, user, profile, masked, history, now, force_answer)
     await add_turn(session, user.id, "assistant", response.text, intent_name)
     if intent_name in NAV_INTENTS:
         response = remember(user, response)
@@ -201,7 +201,7 @@ async def handle_chat(session: AsyncSession, req: ChatRequest) -> ChatResponse:
 
 
 async def route(
-    session: AsyncSession, user: User, profile: Profile, text: str, history: list[str], now
+    session: AsyncSession, user: User, profile: Profile, text: str, history: list[str], now, force_answer: bool = False
 ) -> tuple[ChatResponse, str]:
     state = user.state or {}
 
@@ -235,6 +235,8 @@ async def route(
                 return reply, "reminder_manage"
 
     intent = await classify(text, history, get_llm())
+    if force_answer and intent.intent == "ambiguous":
+        intent = Intent("answerable", intent.topic, [], intent.slots)
     slots = extract_slots(text)
     changed = apply_slots(profile, slots, 0.85)
     llm_slots = {k: v for k, v in clean_slots(intent.slots).items() if k not in slots}
@@ -512,7 +514,9 @@ async def dispatch_callback(session: AsyncSession, req: CallbackRequest) -> Chat
         if option.lower().startswith("друг"):
             return ChatResponse(text="Опишите свой вопрос подробнее, и я постараюсь помочь.")
         return await handle_chat(
-            session, ChatRequest(tg_id=req.tg_id, chat_id=req.chat_id, text=f"{pending['question']} — {option}")
+            session,
+            ChatRequest(tg_id=req.tg_id, chat_id=req.chat_id, text=f"{pending['question']} — {option}"),
+            force_answer=True,
         )
     if prefix == "slot":
         _, slot, value = data.split(":")
