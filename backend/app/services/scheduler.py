@@ -12,7 +12,7 @@ from app.schemas import Button
 from app.services import tax_calendar as tc
 from app.services.context import log_event, utcnow
 from app.services.flows import reminder_link_material
-from app.services.links import with_utm
+from app.services.links import visible_url, with_utm
 from app.services.notify import send_message
 from app.services.reminders import compute_next_run
 from app.services.schedule import apply_quiet_hours
@@ -45,9 +45,10 @@ async def build_text(session: AsyncSession, r: Reminder, user: User) -> str:
         lines.append(f"⏰ {r.title}.")
     else:
         lines.append(f"⏰ Напоминание: {r.title}.")
-    if material and material.url:
+    material_url = visible_url(material.kind, material.url) if material else None
+    if material and material_url:
         content = "tax" if r.type == "tax" else "reminder"
-        link = with_utm(material.url, content, material.ext_id, user.tg_id_hash)
+        link = with_utm(material_url, content, material.ext_id, user.tg_id_hash)
         lines.append(f"Материал по теме: {material.title}\n{link}")
     return "\n".join(lines)
 

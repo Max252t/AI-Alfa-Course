@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     relevance_threshold: float = 0.6
 
     platform_base_url: str = "https://kurs.alfabank.ru"
+    linkable_kinds: str = "article,glossary,course,lesson,document,podcast,calculator"
     default_tz: str = "Europe/Moscow"
     telegram_bot_token: str = ""
     tax_calendar_path: str = "/app/data/tax_calendar.yaml"

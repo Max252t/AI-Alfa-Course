@@ -2,12 +2,12 @@ import re
 
 URL_TEMPLATES = {
     "article": "/articles/{url}/",
-    "course": "/courses/{url}",
-    "document": "/documents/{url}",
-    "webinar": "/webinars/{url}",
-    "podcast": "/podcasts/{url}",
-    "glossary": "/glossary/{url}",
-    "calculator": "/calculators/{url}",
+    "course": "/courses/{url}/",
+    "document": "/documents/{url}/",
+    "webinar": "/webinars/{url}/",
+    "podcast": "/podcasts/{url}/",
+    "glossary": "/vocabulary/{url}/",
+    "calculator": "/calculators/{url}/",
 }
 
 ENTITY_TYPE_KINDS = {

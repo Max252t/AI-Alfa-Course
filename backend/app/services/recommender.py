@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.links import visible_url
 from app.services.rag import Hit
 
 SHORT_FORMATS = {"article", "template", "calculator", "term", "lesson"}
@@ -46,6 +47,13 @@ def stage_match(stages: list[str], profile: dict) -> float:
     if mapped in stages:
         return 1.0
     return 0.6 if "any" in stages else 0.2
+
+
+def stage_fits(hit: Hit, profile: dict) -> bool:
+    mapped = STAGE_MAP.get(profile.get("stage") or "")
+    if mapped is None or not hit.stage or "any" in hit.stage:
+        return True
+    return mapped in hit.stage
 
 
 def format_fit(fmt: str | None, kind: str, course_wanted: bool) -> float:
@@ -153,7 +161,7 @@ async def popular(session: AsyncSession, stage: str | None, limit: int = 3) -> l
     )
     return [
         Hit(
-            ext_id=r.ext_id, kind=r.kind, title=r.title, url=r.url, is_paid=r.is_paid, description=r.description,
+            ext_id=r.ext_id, kind=r.kind, title=r.title, url=visible_url(r.kind, r.url), is_paid=r.is_paid, description=r.description,
             topics=list(r.topics or []), stage=list(r.stage or []), format=r.format, popularity=r.popularity,
             price=r.price, chunk="", cos=0.0, fts=0.0, score=r.popularity,
         )
@@ -169,8 +177,11 @@ async def recommend(
     profile: dict,
     topic: str | None,
     paid_allowed: bool,
+    exclude: set[str] | None = None,
 ) -> list[Rec]:
-    rejected = await rejected_recently(session, user_id)
+    rejected = await rejected_recently(session, user_id) | (exclude or set())
+    fitting = [h for h in hits if stage_fits(h, profile)]
+    hits = fitting if len(fitting) >= 2 else hits
     if not hits:
         cold = await popular(session, profile.get("stage"))
         return pick([(h, h.score) for h in cold], profile, topic, paid_allowed, rejected)
