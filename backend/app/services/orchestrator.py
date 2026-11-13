@@ -89,7 +89,9 @@ def example_buttons(stage: str | None = None) -> list[list[Button]]:
 
 def nav_push(user: User, response: ChatResponse) -> None:
     nav = list((user.state or {}).get("nav", []))
-    nav.append(response.model_dump())
+    entry = response.model_dump()
+    entry["_pending"] = (user.state or {}).get("pending")
+    nav.append(entry)
     set_state(user, nav=nav[-NAV_LIMIT:])
 
 
@@ -108,10 +110,17 @@ def go_back(user: User, stage: str | None) -> ChatResponse:
     nav = list((user.state or {}).get("nav", []))
     if len(nav) < 2:
         set_state(user, nav=[])
+        clear_keys(user, "pending")
         return ChatResponse(text="Это начало диалога. Задайте вопрос или выберите пример.", buttons=example_buttons(stage))
     nav.pop()
     set_state(user, nav=nav)
-    return with_back(user, ChatResponse(**nav[-1]))
+    entry = dict(nav[-1])
+    pending = entry.pop("_pending", None)
+    if pending is None:
+        clear_keys(user, "pending")
+    else:
+        set_state(user, pending=pending)
+    return with_back(user, ChatResponse(**entry))
 
 
 def onboarding_buttons() -> list[list[Button]]:
