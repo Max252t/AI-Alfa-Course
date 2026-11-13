@@ -32,6 +32,16 @@ TZ_OPTIONS = {
     "Asia/Vladivostok": "Владивосток",
 }
 
+def tz_label(zone: str) -> str:
+    name = TZ_OPTIONS.get(zone, zone)
+    offset = datetime.now(ZoneInfo(zone)).utcoffset()
+    total = int(offset.total_seconds() // 60) if offset else 0
+    sign = "+" if total >= 0 else "-"
+    hours, minutes = divmod(abs(total), 60)
+    shift = f"{hours}:{minutes:02d}" if minutes else f"{hours}"
+    return f"{name}, UTC{sign}{shift}"
+
+
 CLEAN_PREFIX = re.compile(r"^\W*(?:пожалуйста[, ]*)?(?:напомни(?:ть)?|напоминай)\s*(?:мне)?\s*", re.I)
 CLEAN_SCHEDULE = re.compile(
     r"\b(?:каждый|каждую|каждое|каждые|раз в|ежедневно|еженедельно|ежемесячно|ежеквартально|завтра|послезавтра|сегодня)\b.*$",
@@ -71,7 +81,10 @@ def button_row(*pairs: tuple[str, str], per_row: int = 3) -> list[list[Button]]:
 
 
 def confirm_buttons() -> list[list[Button]]:
-    return button_row(("Да", "rf:yes"), ("Изменить", "rf:edit"), ("Отмена", "rf:cancel"))
+    return [
+        *button_row(("Да", "rf:yes"), ("Изменить", "rf:edit"), ("Отмена", "rf:cancel")),
+        *button_row(("🕐 Сменить часовой пояс", "rf:tzmenu")),
+    ]
 
 
 async def start_reminder(
@@ -160,7 +173,7 @@ async def next_step(session: AsyncSession, user: User, profile: Profile, now: da
     if rem["type"] == "tax":
         note = f"\n\n{tc.disclaimer()}"
     return ChatResponse(
-        text=f"Создам напоминание:\n{lines}\n\nВсё верно?{note}",
+        text=f"Создам напоминание:\n{lines}\n\n🕐 Часовой пояс: {tz_label(user.tz)}\n\nВсё верно?{note}",
         buttons=confirm_buttons(),
     )
 
@@ -205,7 +218,7 @@ async def finish(session: AsyncSession, user: User, now: datetime) -> ChatRespon
         return ChatResponse(text="Не получилось определить время напоминания. Попробуйте ещё раз, например: «каждый понедельник в 9».")
     await log_event(session, user.id, "reminder_created", {"count": len(created), "type": rem["type"]})
     when = created[0].next_run_at.astimezone(ZoneInfo(user.tz)).strftime("%d.%m в %H:%M") if created[0].next_run_at else ""
-    tail = f" Ближайшее — {when}." if when else ""
+    tail = f" Ближайшее — {when} ({tz_label(user.tz)})." if when else ""
     return ChatResponse(
         text=f"Готово, создал напоминаний: {len(created)}.{tail}\nУправлять ими можно в /reminders.",
         buttons=button_row(("Мои напоминания", "rem:list")),
@@ -321,6 +334,10 @@ async def flow_callback(
         apply_slots(profile, {"tax_regime": parts[2]}, 0.95)
     elif action == "legal":
         apply_slots(profile, {"legal_form": parts[2]}, 0.95)
+    elif action == "tzmenu":
+        return await ask(user, rem, "tz", "В каком часовом поясе вы живёте? Я напомню по вашему времени.", button_row(
+            *[(label, f"rf:tz:{zone}") for zone, label in TZ_OPTIONS.items()]
+        ))
     elif action == "tz":
         if parts[2] in TZ_OPTIONS:
             user.tz = parts[2]
@@ -381,7 +398,11 @@ async def list_response(session: AsyncSession, user: User) -> list[ChatResponse]
     result = []
     for r in reminders:
         state = "включено" if r.active else "выключено"
-        nxt = f"\nБлижайшее: {r.next_run_at.astimezone(tz).strftime('%d.%m в %H:%M')}" if r.active and r.next_run_at else ""
+        nxt = (
+            f"\nБлижайшее: {r.next_run_at.astimezone(tz).strftime('%d.%m в %H:%M')} ({tz_label(user.tz)})"
+            if r.active and r.next_run_at
+            else ""
+        )
         result.append(ChatResponse(text=f"⏰ {describe_reminder(r)} ({state}){nxt}", buttons=reminder_buttons(r)))
     return result
 
