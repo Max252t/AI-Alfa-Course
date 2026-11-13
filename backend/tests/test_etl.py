@@ -46,7 +46,8 @@ def test_paid_articles_and_podcasts():
 
 
 def test_build_url():
-    assert build_url("course", "usn", "https://x.ru/") == "https://x.ru/courses/usn"
+    assert build_url("course", "usn", "https://x.ru/") == "https://x.ru/courses/usn/"
+    assert build_url("glossary", "abc", "https://x.ru") == "https://x.ru/vocabulary/abc/"
     assert build_url("course", "", "https://x.ru") is None
 
 
