@@ -39,7 +39,7 @@ from app.services.profile_rules import (
     extract_slots,
     summarize,
 )
-from app.services.rag import Hit, generate_answer, relevant, search
+from app.services.rag import Hit, generate_answer, relevant, renumber_citations, search
 from app.services.recommender import Rec, recommend
 from app.services.reminders import manage_command
 
@@ -50,6 +50,15 @@ EXAMPLES = [
     "С чего начать свой бизнес?",
     "Напоминай мне платить налоги",
 ]
+EXAMPLES_RUNNING = [
+    "Как выбрать налоговый режим для моего бизнеса?",
+    "Как привлекать больше клиентов?",
+    "Напоминай мне платить налоги",
+]
+RUNNING_STAGES = {"running", "growth"}
+NAV_INTENTS = {"answerable", "ambiguous", "out_of_scope", "paid_guard"}
+NAV_LIMIT = 6
+BACK_BUTTON = Button(text="⬅️ Назад", data="nav:back")
 
 REFUSAL_SCOPE = "Я помогаю только с вопросами о бизнесе и обучении на «Альфа-Курсе». С чем могу помочь по этим темам?"
 SLOT_LABELS = {
@@ -70,8 +79,39 @@ SLOT_OPTIONS = {
 ENUM_SLOTS = {"stage", "legal_form", "tax_regime", "main_task"}
 
 
-def example_buttons() -> list[list[Button]]:
-    return rows([Button(text=t[:40], data=f"ex:{i}") for i, t in enumerate(EXAMPLES)], 1)
+def examples_for(stage: str | None) -> list[str]:
+    return EXAMPLES_RUNNING if stage in RUNNING_STAGES else EXAMPLES
+
+
+def example_buttons(stage: str | None = None) -> list[list[Button]]:
+    return rows([Button(text=t[:40], data=f"ex:{i}") for i, t in enumerate(examples_for(stage))], 1)
+
+
+def nav_push(user: User, response: ChatResponse) -> None:
+    nav = list((user.state or {}).get("nav", []))
+    nav.append(response.model_dump())
+    set_state(user, nav=nav[-NAV_LIMIT:])
+
+
+def with_back(user: User, response: ChatResponse) -> ChatResponse:
+    if (user.state or {}).get("nav"):
+        return response.model_copy(update={"buttons": [*response.buttons, [BACK_BUTTON]]})
+    return response
+
+
+def remember(user: User, response: ChatResponse) -> ChatResponse:
+    nav_push(user, response)
+    return with_back(user, response)
+
+
+def go_back(user: User, stage: str | None) -> ChatResponse:
+    nav = list((user.state or {}).get("nav", []))
+    if len(nav) < 2:
+        set_state(user, nav=[])
+        return ChatResponse(text="Это начало диалога. Задайте вопрос или выберите пример.", buttons=example_buttons(stage))
+    nav.pop()
+    set_state(user, nav=nav)
+    return with_back(user, ChatResponse(**nav[-1]))
 
 
 def onboarding_buttons() -> list[list[Button]]:
@@ -113,11 +153,12 @@ def to_rec_out(rec: Rec, user_hash: str, content: str = "rec") -> RecOut:
     )
 
 
-def sources_text(hits: list[Hit], user_hash: str) -> str:
+def sources_text(hits: list[Hit], user_hash: str, numbered: bool = True) -> str:
     lines = []
     for i, h in enumerate(hits, start=1):
         url = with_utm(h.url, "src", h.ext_id, user_hash)
-        lines.append(f"[{i}] {h.title}" + (f" — {url}" if url else ""))
+        marker = f"[{i}]" if numbered else "•"
+        lines.append(f"{marker} {h.title}" + (f" — {url}" if url else ""))
     return "\n".join(lines)
 
 
@@ -154,6 +195,8 @@ async def handle_chat(session: AsyncSession, req: ChatRequest) -> ChatResponse:
     await add_turn(session, user.id, "user", masked)
     response, intent_name = await route(session, user, profile, masked, history, now)
     await add_turn(session, user.id, "assistant", response.text, intent_name)
+    if intent_name in NAV_INTENTS:
+        response = remember(user, response)
     return response
 
 
@@ -178,7 +221,7 @@ async def route(
 
     if looks_like_injection(text):
         await log_event(session, user.id, "injection_blocked", {})
-        return ChatResponse(text=REFUSAL_SCOPE, buttons=example_buttons()), "out_of_scope"
+        return ChatResponse(text=REFUSAL_SCOPE, buttons=example_buttons(profile.stage)), "out_of_scope"
 
     if asks_paid_retell(text):
         return await paid_retell_reply(session, user, text), "paid_guard"
@@ -202,7 +245,7 @@ async def route(
     if intent.intent == "smalltalk":
         thanks = re.search(r"спасибо|благодар", text, re.I)
         reply = "Пожалуйста! Если появятся вопросы — пишите." if thanks else "Здравствуйте! Чем могу помочь? Можно выбрать пример:"
-        return ChatResponse(text=reply, buttons=example_buttons()), "smalltalk"
+        return ChatResponse(text=reply, buttons=example_buttons(profile.stage)), "smalltalk"
 
     if intent.intent == "reminder_intent":
         return await flows.start_reminder(session, user, profile, text, now), "reminder_intent"
@@ -243,7 +286,9 @@ async def paid_retell_reply(session: AsyncSession, user: User, text: str) -> Cha
     )
 
 
-async def out_of_scope_reply(session: AsyncSession, user: User, text: str, near: list[Hit], best: float) -> ChatResponse:
+async def out_of_scope_reply(
+    session: AsyncSession, user: User, text: str, near: list[Hit], best: float, stage: str | None = None
+) -> ChatResponse:
     await log_event(session, user.id, "no_answer", {"q": text[:300], "best": round(best, 3)})
     lines = ["В базе «Альфа-Курса» ответа на этот вопрос нет, а выдумывать я не буду."]
     suggestions = [h for h in near if not h.is_paid and h.score >= 0.4][:3]
@@ -252,7 +297,7 @@ async def out_of_scope_reply(session: AsyncSession, user: User, text: str, near:
         lines += [f"• {h.title}" + (f" — {with_utm(h.url, 'rec', h.ext_id, user.tg_id_hash)}" if h.url else "") for h in suggestions]
     else:
         lines.append("Я могу помочь с налогами и режимами, регистрацией бизнеса, учётом, маркетингом и продажами.")
-    return ChatResponse(text="\n".join(lines), buttons=example_buttons())
+    return ChatResponse(text="\n".join(lines), buttons=example_buttons(stage))
 
 
 def needs_legal_form_question(profile: Profile, question: str, hits: list[Hit], state: dict) -> bool:
@@ -275,17 +320,33 @@ async def answer_question(
     rel = relevant(free)[:5]
     best = free[0].score if free else 0.0
     if not rel or (intent.intent == "out_of_scope" and best < settings.relevance_threshold * 1.15):
-        return await out_of_scope_reply(session, user, text, free, best)
+        return await out_of_scope_reply(session, user, text, free, best, profile.stage)
 
     prof = profile_dict(profile)
-    answer, used_llm = await generate_answer(get_llm(), text, rel[:3], summarize(prof), history)
+    candidates = rel[:3]
+    answer, used_llm = await generate_answer(get_llm(), text, candidates, summarize(prof), history)
     state = user.state or {}
-    body = answer + "\n\nИсточники:\n" + sources_text(rel[:3], user.tg_id_hash)
+    if used_llm:
+        answer, order = renumber_citations(answer, len(candidates))
+        cited = [candidates[i - 1] for i in order]
+        if cited:
+            body = answer + "\n\nИсточники:\n" + sources_text(cited, user.tg_id_hash)
+        else:
+            cited = candidates[:2]
+            body = answer + "\n\nИсточники:\n" + sources_text(cited, user.tg_id_hash, numbered=False)
+    else:
+        cited = candidates
+        body = answer
 
     recs: list[Rec] = []
     if user.ab_group != "A":
         paid_allowed = state.get("answers_since_paid", 2) >= 2
-        recs = (await recommend(session, user.id, hits_all, text, prof, intent.topic, paid_allowed))[:2]
+        pool = [h for h in hits_all if h.score >= settings.relevance_threshold * 0.85]
+        recs = (
+            await recommend(
+                session, user.id, pool, text, prof, intent.topic, paid_allowed, exclude={h.ext_id for h in cited}
+            )
+        )[:2]
     for rec in recs:
         session.add(RecShown(user_id=user.id, material_ext_id=rec.ext_id, reason=rec.reason))
     shown_paid = any(r.is_paid for r in recs)
@@ -293,7 +354,7 @@ async def answer_question(
     answer_n = state.get("answer_n", 0) + 1
     first_free = next((r for r in recs if not r.is_paid), None)
     anchor = {"ext_id": first_free.ext_id, "title": first_free.title} if first_free else {"ext_id": rel[0].ext_id, "title": rel[0].title}
-    shown = list(dict.fromkeys([*state.get("shown", []), *[h.ext_id for h in rel[:3]], *[r.ext_id for r in recs]]))[-40:]
+    shown = list(dict.fromkeys([*state.get("shown", []), *[h.ext_id for h in cited], *[r.ext_id for r in recs]]))[-40:]
     set_state(
         user,
         answer_n=answer_n,
@@ -308,12 +369,16 @@ async def answer_question(
     buttons = feedback_buttons()
     if needs_legal_form_question(profile, text, rel, state):
         set_state(user, asked_legal_at=answer_n)
-        body += "\n\nКстати, вы уже зарегистрированы как ИП или только планируете?"
-        buttons.append([
+        running = profile.stage in RUNNING_STAGES
+        question = "Кстати, вы ИП или ООО?" if running else "Кстати, вы уже зарегистрированы как ИП или только планируете?"
+        body += "\n\n" + question
+        legal_row = [
             Button(text="ИП", data="slot:legal_form:ip"),
             Button(text="ООО", data="slot:legal_form:ooo"),
-            Button(text="Пока планирую", data="slot:stage:start"),
-        ])
+        ]
+        if not running:
+            legal_row.append(Button(text="Пока планирую", data="slot:stage:start"))
+        buttons.append(legal_row)
 
     await log_event(
         session,
@@ -411,17 +476,21 @@ async def handle_callback(session: AsyncSession, req: CallbackRequest) -> ChatRe
 
     if prefix == "ex":
         idx = int(data.split(":")[1])
-        return await handle_chat(session, ChatRequest(tg_id=req.tg_id, chat_id=req.chat_id, text=EXAMPLES[idx]))
+        examples = examples_for(profile.stage)
+        if idx >= len(examples):
+            return ChatResponse(text="Задайте вопрос своими словами.", buttons=example_buttons(profile.stage))
+        return await handle_chat(session, ChatRequest(tg_id=req.tg_id, chat_id=req.chat_id, text=examples[idx]))
     if prefix == "ob":
         parts = data.split(":")
         if parts[1] == "stage":
             apply_slots(profile, {"stage": parts[2]}, 1.0)
-            buttons = rows([Button(text=label, data=f"ob:task:{key}") for key, label in TASK_LABELS.items()], 2)
+            skip = {"start"} if parts[2] in RUNNING_STAGES else set()
+            buttons = rows([Button(text=label, data=f"ob:task:{key}") for key, label in TASK_LABELS.items() if key not in skip], 2)
             buttons.append([Button(text="Пропустить", data="ob:skip")])
             return ChatResponse(text="Что сейчас важнее всего?", buttons=buttons)
         if parts[1] == "task":
             apply_slots(profile, {"main_task": parts[2]}, 1.0)
-        return ChatResponse(text="Спасибо! Теперь задайте вопрос или выберите пример.", buttons=example_buttons())
+        return ChatResponse(text="Спасибо! Теперь задайте вопрос или выберите пример.", buttons=example_buttons(profile.stage))
     if prefix == "clar":
         pending = state.get("pending")
         idx = int(data.split(":")[1])
@@ -441,8 +510,10 @@ async def handle_callback(session: AsyncSession, req: CallbackRequest) -> ChatRe
         return ChatResponse(text="Спасибо, учту в следующих ответах.")
     if prefix == "fb":
         return await feedback_reply(session, user, data.split(":")[1])
+    if data == "nav:back":
+        return go_back(user, profile.stage)
     if data == "more":
-        return await more_reply(session, user)
+        return remember(user, await more_reply(session, user))
     if prefix == "rm":
         material = state.get("last_material")
         return await flows.start_reminder(session, user, profile, "напомни продолжить обучение", now, material=material)
