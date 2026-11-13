@@ -1,6 +1,11 @@
-from app.models import User
-from app.schemas import Button, ChatResponse
+from unittest.mock import AsyncMock
+
+import pytest
+
+from app.models import Profile, User
+from app.schemas import Button, CallbackRequest, ChatResponse
 from app.services import flows
+from app.services import orchestrator
 from app.services.orchestrator import (
     BACK_BUTTON,
     EXAMPLES,
@@ -61,6 +66,41 @@ def test_history_is_limited():
     for i in range(20):
         remember(user, reply(str(i)))
     assert len(user.state["nav"]) <= 6
+
+
+@pytest.mark.parametrize("idx", range(4))
+async def test_clarification_buttons_work_after_back(monkeypatch, idx):
+    user = User(state={})
+    options = ["Бизнес-план", "Регистрация бизнеса", "Поиск финансирования", "Маркетинг"]
+    pending = {"question": "С чего начать свой бизнес?", "options": options}
+    user.state = {"pending": pending}
+    remember(user, ChatResponse(text="Уточните", buttons=[[
+        Button(text=option, data=f"clar:{i}") for i, option in enumerate(options)
+    ]]))
+    monkeypatch.setattr(orchestrator, "get_user", AsyncMock(return_value=user))
+    monkeypatch.setattr(orchestrator, "get_profile", AsyncMock(return_value=Profile()))
+    chat = AsyncMock(return_value=reply("Ответ"))
+    monkeypatch.setattr(orchestrator, "handle_chat", chat)
+
+    await orchestrator.handle_callback(None, CallbackRequest(tg_id=1, chat_id=1, data="clar:1"))
+    assert "pending" not in user.state
+    remember(user, reply("Регистрация бизнеса"))
+    restored = go_back(user, None)
+    assert restored.buttons[0][idx].data == f"clar:{idx}"
+    await orchestrator.handle_callback(None, CallbackRequest(tg_id=1, chat_id=1, data=f"clar:{idx}"))
+    assert chat.await_args.args[1].text == f"{pending['question']} — {options[idx]}"
+    assert chat.await_count == 2
+
+
+def test_back_restores_each_clarification_context():
+    user = User(state={"pending": {"question": "Первый", "options": ["А"]}})
+    remember(user, reply("Первый"))
+    user.state = {**user.state, "pending": {"question": "Второй", "options": ["Б"]}}
+    remember(user, reply("Второй"))
+    go_back(user, None)
+    assert user.state["pending"] == {"question": "Первый", "options": ["А"]}
+    go_back(user, None)
+    assert "pending" not in user.state
 
 
 def test_examples_depend_on_stage():
