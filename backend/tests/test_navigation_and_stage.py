@@ -123,3 +123,9 @@ def test_timezone_label_shows_offset():
     assert flows.tz_label("Europe/Moscow") == "Москва, UTC+3"
     assert flows.tz_label("Asia/Yekaterinburg") == "Екатеринбург, UTC+5"
     assert flows.tz_label("Asia/Vladivostok") == "Владивосток, UTC+10"
+
+
+def test_example_button_labels_fit_without_truncation():
+    for stage in (None, "running"):
+        for row in example_buttons(stage):
+            assert all(len(b.text) <= 32 for b in row)
