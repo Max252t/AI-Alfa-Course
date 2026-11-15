@@ -27,6 +27,8 @@ async def get_user(session: AsyncSession, tg_id: int, chat_id: int | None = None
         await log_event(session, user.id, "user_created", {})
     if chat_id and user.chat_id != chat_id:
         user.chat_id = chat_id
+    if not user.notifications_enabled:
+        user.notifications_enabled = True
     user.last_active_at = utcnow()
     return user
 
