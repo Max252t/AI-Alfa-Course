@@ -55,6 +55,10 @@ EXAMPLES_RUNNING = [
     "Как привлекать больше клиентов?",
     "Напоминай мне платить налоги",
 ]
+EXAMPLE_LABELS = {
+    "Как выбрать налоговый режим для кофейни?": "Какой выбрать налоговый режим?",
+    "Как выбрать налоговый режим для моего бизнеса?": "Какой выбрать налоговый режим?",
+}
 RUNNING_STAGES = {"running", "growth"}
 NAV_INTENTS = {"answerable", "ambiguous", "out_of_scope", "paid_guard"}
 NAV_LIMIT = 6
@@ -84,7 +88,7 @@ def examples_for(stage: str | None) -> list[str]:
 
 
 def example_buttons(stage: str | None = None) -> list[list[Button]]:
-    return rows([Button(text=t[:40], data=f"ex:{i}") for i, t in enumerate(examples_for(stage))], 1)
+    return rows([Button(text=EXAMPLE_LABELS.get(t, t), data=f"ex:{i}") for i, t in enumerate(examples_for(stage))], 1)
 
 
 def nav_push(user: User, response: ChatResponse) -> None:
@@ -501,6 +505,7 @@ async def dispatch_callback(session: AsyncSession, req: CallbackRequest) -> Chat
         examples = examples_for(profile.stage)
         if idx >= len(examples):
             return ChatResponse(text="Задайте вопрос своими словами.", buttons=example_buttons(profile.stage))
+        clear_keys(user, "flow", "rem", "slot")
         return await handle_chat(session, ChatRequest(tg_id=req.tg_id, chat_id=req.chat_id, text=examples[idx]))
     if prefix == "ob":
         parts = data.split(":")

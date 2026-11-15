@@ -58,6 +58,17 @@ CLEAN_SCHEDULE = re.compile(
 )
 
 
+def is_question_like(text: str) -> bool:
+    return "?" in text or len(text.split()) >= 4
+
+
+def carries_schedule(rem: dict, text: str, now: datetime, tz: str) -> bool:
+    if rem["type"] == "tax":
+        lead, send_time = parse_lead_and_time(text)
+        return lead is not None or send_time is not None
+    return not parse_schedule(text, now, tz).is_empty
+
+
 def sched_to_dict(s: Schedule) -> dict:
     return {
         "freq": s.freq,
@@ -243,6 +254,10 @@ async def flow_text(
     step = rem["step"]
     lowered = text.strip().lower()
 
+    if step in {"confirm", "edit"} and is_question_like(text) and not carries_schedule(rem, text, now, user.tz):
+        clear_keys(user, "flow", "rem")
+        return None
+
     if step == "confirm":
         if YES.match(lowered):
             return await finish(session, user, now)
@@ -280,7 +295,7 @@ async def flow_text(
             rem = await change_timezone(session, user, zone, rem, now)
             return await next_step(session, user, profile, now)
 
-    if step in {"regime", "legal", "when", "patent_date"} and ("?" in text or len(text.split()) >= 4):
+    if step in {"regime", "legal", "when", "patent_date"} and is_question_like(text):
         clear_keys(user, "flow", "rem")
         return None
     rem["tries"] = rem.get("tries", 0) + 1

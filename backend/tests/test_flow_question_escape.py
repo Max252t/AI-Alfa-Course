@@ -26,3 +26,17 @@ async def test_short_garbage_still_gets_hint_first():
     reply = await flows.flow_text(None, user, Profile(), "хм", NOW)
     assert reply is not None
     assert user.state["rem"]["tries"] == 1
+
+
+@pytest.mark.parametrize("step", ["confirm", "edit"])
+@pytest.mark.parametrize("text", ["Как привлекать больше клиентов?", "Как зарегистрироваться как ип"])
+async def test_question_leaves_flow_at_confirm_and_edit(step, text):
+    user = User(tz="Europe/Moscow", state={"flow": "reminder", "rem": {"type": "tax", "step": step, "tries": 0}})
+    assert await flows.flow_text(None, user, Profile(), text, NOW) is None
+    assert "rem" not in user.state
+
+
+async def test_edit_step_still_accepts_lead_and_time():
+    user = User(tz="Europe/Moscow", state={"flow": "reminder", "rem": {"type": "tax", "step": "edit", "tries": 0}})
+    reply = await flows.apply_edit(None, user, Profile(), dict(user.state["rem"]), "за 5 дней в 9:00", NOW)
+    assert reply is not None
