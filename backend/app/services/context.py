@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -19,12 +20,19 @@ async def get_user(session: AsyncSession, tg_id: int, chat_id: int | None = None
     result = await session.execute(select(User).where(User.tg_id_hash == digest))
     user = result.scalar_one_or_none()
     if user is None:
-        user = User(tg_id_hash=digest, chat_id=chat_id or tg_id, tz=settings.default_tz, state={})
-        session.add(user)
-        await session.flush()
-        session.add(Profile(user_id=user.id, slot_confidence={}))
-        await session.flush()
-        await log_event(session, user.id, "user_created", {})
+        created_id = (
+            await session.execute(
+                pg_insert(User)
+                .values(tg_id_hash=digest, chat_id=chat_id or tg_id, tz=settings.default_tz, state={})
+                .on_conflict_do_nothing(index_elements=["tg_id_hash"])
+                .returning(User.id)
+            )
+        ).scalar_one_or_none()
+        user = (await session.execute(select(User).where(User.tg_id_hash == digest))).scalar_one()
+        if created_id is not None:
+            session.add(Profile(user_id=user.id, slot_confidence={}))
+            await session.flush()
+            await log_event(session, user.id, "user_created", {})
     if chat_id and user.chat_id != chat_id:
         user.chat_id = chat_id
     if not user.notifications_enabled:
