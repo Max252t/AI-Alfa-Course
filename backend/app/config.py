@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     llm_provider: str = "ollama"
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen2.5:7b"
+    ollama_model: str = "gemma3:12b"
     openai_base_url: str = ""
     openai_api_key: str = ""
     openai_model: str = ""
@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     embedding_model: str = "intfloat/multilingual-e5-base"
     embedding_dim: int = 768
-    relevance_threshold: float = 0.6
+    relevance_threshold: float = 0.85
 
     platform_base_url: str = "https://kurs.alfabank.ru"
     linkable_kinds: str = "article,glossary,course,lesson,document,podcast,calculator"
