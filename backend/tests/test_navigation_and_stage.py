@@ -4,8 +4,7 @@ import pytest
 
 from app.models import Profile, User
 from app.schemas import Button, CallbackRequest, ChatResponse
-from app.services import flows
-from app.services import orchestrator
+from app.services import flows, orchestrator
 from app.services.orchestrator import (
     BACK_BUTTON,
     EXAMPLES,
