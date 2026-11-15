@@ -26,3 +26,22 @@ def test_clean_text_unchanged():
     text = "Как выбрать налоговый режим для кофейни?"
     assert mask_pii(text) == text
     assert not contains_pii(text)
+
+
+async def test_rag_context_is_not_masked_but_question_is():
+    from app.services.rag import Hit, generate_answer
+
+    seen = {}
+
+    class Fake:
+        async def complete(self, system, user, json_mode=False, temperature=0.2):
+            seen["prompt"] = user
+            return "ответ [1]"
+
+    hit = Hit(
+        ext_id="a", kind="article", title="КБК", url=None, is_paid=False, description=None, topics=[], stage=[],
+        format=None, popularity=0.0, price=None, chunk="КБК 18210101011011000110 для платежа", cos=1, fts=1, score=1,
+    )
+    await generate_answer(Fake(), "мой телефон +7 916 123-45-67", [hit], "неизвестен", [])
+    assert "18210101011011000110" in seen["prompt"]
+    assert "916" not in seen["prompt"]

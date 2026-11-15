@@ -2,6 +2,7 @@ import re
 from dataclasses import dataclass, field
 
 from app.services.llm import LLMProvider, LLMUnavailable
+from app.services.pii import mask_pii
 
 INTENTS = {"answerable", "ambiguous", "out_of_scope", "reminder_intent", "smalltalk"}
 
@@ -83,8 +84,9 @@ async def classify(text: str, history: list[str], llm: LLMProvider) -> Intent:
     quick = rule_intent(text)
     if quick is not None:
         return quick
-    context = "\n".join(history[-4:])
-    prompt = f"История:\n{context}\n\nСообщение: {text}" if context else f"Сообщение: {text}"
+    context = mask_pii("\n".join(history[-4:]))
+    message = mask_pii(text)
+    prompt = f"История:\n{context}\n\nСообщение: {message}" if context else f"Сообщение: {message}"
     try:
         data = await llm.complete_json(CLASSIFY_SYSTEM, prompt)
     except LLMUnavailable:

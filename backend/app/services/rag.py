@@ -9,6 +9,7 @@ from app.config import get_settings
 from app.services.embeddings import encode_query
 from app.services.links import visible_url
 from app.services.llm import LLMProvider, LLMUnavailable
+from app.services.pii import mask_pii
 
 log = logging.getLogger(__name__)
 
@@ -194,9 +195,9 @@ async def generate_answer(
 ) -> tuple[str, bool]:
     prompt = (
         f"<profile>{profile_summary}</profile>\n"
-        f"<history>{chr(10).join(history[-5:])}</history>\n"
+        f"<history>{mask_pii(chr(10).join(history[-5:]))}</history>\n"
         f"<context>\n{build_context(hits)}\n</context>\n"
-        f"Вопрос: {question}\n"
+        f"Вопрос: {mask_pii(question)}\n"
         "Ответь по-русски, только русскими словами."
     )
     try:
