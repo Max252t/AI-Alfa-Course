@@ -87,10 +87,12 @@ ETL (`etl/run.py`):
 | `TELEGRAM_BOT_TOKEN` | токен от @BotFather |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `DATABASE_URL` | подключение к БД |
 | `ID_HASH_SALT` | соль для хэша Telegram-ID |
+| `API_TOKEN` | общий секрет между ботом и бэкендом (заголовок `X-Api-Key`); пусто — проверка выключена |
 | `LLM_PROVIDER` | `ollama`, `openai`, `gigachat`, `yandex` |
 | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | локальная модель (по умолчанию `qwen2.5:7b`) |
 | `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL` | любой OpenAI-совместимый endpoint |
 | `GIGACHAT_AUTH_KEY`, `GIGACHAT_SCOPE`, `GIGACHAT_MODEL` | GigaChat |
+| `GIGACHAT_VERIFY_SSL`, `GIGACHAT_CA_BUNDLE` | проверка TLS GigaChat; для сертификата НУЦ Минцифры укажите путь к нему в `GIGACHAT_CA_BUNDLE` |
 | `YANDEX_API_KEY`, `YANDEX_FOLDER_ID`, `YANDEX_MODEL` | YandexGPT |
 | `RELEVANCE_THRESHOLD` | порог релевантности поиска (откалибровать, см. ниже) |
 | `PLATFORM_BASE_URL` | адрес платформы для ссылок |
@@ -102,7 +104,7 @@ ETL (`etl/run.py`):
 
 - Telegram Bot API. Токен: @BotFather → `/newbot`.
 - LLM по выбору. По умолчанию Ollama на вашей машине (`ollama pull qwen2.5:7b`, адрес `http://host.docker.internal:11434`), данные никуда не уходят. Для облачных провайдеров ключи берутся в их кабинетах (GigaChat Studio, Yandex Cloud) и задаются в `.env`.
-- В LLM отправляются только: вопрос после маскирования ПДн (телефоны, e-mail, ИНН, номера карт, username, имя после «меня зовут»), фрагменты открытых материалов и обезличенные слоты профиля. Telegram-ID, имя и username в LLM не попадают. Маскирование стоит внутри обёртки провайдера, обойти его из кода сервисов нельзя.
+- В LLM отправляются только: вопрос после маскирования ПДн (телефоны, e-mail, ИНН, номера карт, username, имя после «меня зовут»), фрагменты открытых материалов и обезличенные слоты профиля. Telegram-ID, имя и username в LLM не попадают. Маскируются вопрос пользователя и история диалога; фрагменты материалов остаются как есть, чтобы не искажать числа в них (КБК, реквизиты). Telegram `chat_id` хранится в БД открытым текстом: он нужен для отправки напоминаний.
 - Эмбеддинги считаются локально.
 - В БД хранится хэш Telegram-ID. Для отправки напоминаний нужен и `chat_id`, он хранится в таблице `users` и не покидает её. `/reset` удаляет пользователя, профиль, историю, напоминания и события.
 - GigaChat подключается с отключённой проверкой сертификата (корневой сертификат Минцифры не входит в образ). Для продакшена добавьте сертификат в образ.
