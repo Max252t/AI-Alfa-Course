@@ -10,7 +10,7 @@ from app.models import Material, Profile, Reminder, User
 from app.schemas import Button, ChatResponse, rows
 from app.services import tax_calendar as tc
 from app.services.context import apply_slots, clear_keys, log_event, set_state
-from app.services.profile_rules import extract_legal_form, extract_tax_regime
+from app.services.profile_rules import LEGAL_LABELS, extract_legal_form, extract_tax_regime
 from app.services.reminders import (
     compute_next_run,
     create_from_draft,
@@ -224,6 +224,8 @@ async def finish(session: AsyncSession, user: User, now: datetime) -> ChatRespon
     created = await create_from_draft(session, user, rem, now)
     clear_keys(user, "flow", "rem")
     if not created:
+        if rem["type"] == "tax":
+            return ChatResponse(text="Дата для этого напоминания уже прошла. Укажите актуальную дату или другой срок.")
         return ChatResponse(text="Не получилось определить время напоминания. Попробуйте ещё раз, например: «каждый понедельник в 9».")
     await log_event(session, user.id, "reminder_created", {"count": len(created), "type": rem["type"]})
     when = created[0].next_run_at.astimezone(ZoneInfo(user.tz)).strftime("%d.%m в %H:%M") if created[0].next_run_at else ""
@@ -367,8 +369,12 @@ async def flow_callback(
     if action == "edit":
         return await edit_prompt(user, rem)
     if action == "regime":
+        if parts[2] not in tc.REGIME_LABELS:
+            return ChatResponse(text="Не понял команду.")
         apply_slots(profile, {"tax_regime": parts[2]}, 0.95)
     elif action == "legal":
+        if parts[2] not in LEGAL_LABELS:
+            return ChatResponse(text="Не понял команду.")
         apply_slots(profile, {"legal_form": parts[2]}, 0.95)
     elif action == "tzmenu":
         return await ask(user, rem, "tz", "В каком часовом поясе вы живёте? Я напомню по вашему времени.", button_row(
