@@ -10,7 +10,8 @@ CHAT_URL = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
 
 
 class GigaChatProvider(LLMProvider):
-    def __init__(self, auth_key: str, scope: str, model: str):
+    def __init__(self, auth_key: str, scope: str, model: str, verify: bool | str = True):
+        self.verify = verify
         self.auth_key = auth_key
         self.scope = scope
         self.model = model
@@ -46,7 +47,7 @@ class GigaChatProvider(LLMProvider):
             ],
         }
         try:
-            async with httpx.AsyncClient(timeout=60, verify=False) as client:
+            async with httpx.AsyncClient(timeout=60, verify=self.verify) as client:
                 token = await self._ensure_token(client)
                 response = await client.post(
                     CHAT_URL, json=payload, headers={"Authorization": f"Bearer {token}"}

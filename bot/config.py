@@ -6,6 +6,7 @@ class Settings(BaseSettings):
 
     telegram_bot_token: str = ""
     backend_url: str = "http://localhost:8000"
+    api_token: str = ""
 
 
 settings = Settings()

@@ -80,3 +80,64 @@ async def test_timezone_change_recomputes_active_reminders(monkeypatch):
     assert user.tz == "Asia/Novosibirsk"
     assert r.next_run_at != NOW
     assert r.next_run_at.astimezone(flows.ZoneInfo("Asia/Novosibirsk")).hour == 10
+
+
+async def test_get_user_reenables_notifications(monkeypatch):
+    from app.services import context
+
+    user = User(id=uuid.uuid4(), tg_id_hash="h", chat_id=1, notifications_enabled=False, state={})
+
+    class Result:
+        def scalar_one_or_none(self):
+            return user
+
+    class Session:
+        async def execute(self, stmt):
+            return Result()
+
+    got = await context.get_user(Session(), 1, 1)
+    assert got.notifications_enabled is True
+
+
+async def test_expired_patent_reminder_is_not_created(monkeypatch):
+    from pathlib import Path
+
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "tax_calendar_path", str(Path(__file__).resolve().parents[2] / "data" / "tax_calendar.yaml"))
+    user = User(id=uuid.uuid4(), tz="Europe/Moscow", quiet_from=22, quiet_to=9, state={})
+    draft = {
+        "items": [
+            {
+                "type": "tax", "title": "Оплата патента", "tax_event_id": "patent_payment", "lead_days": 5,
+                "send_time": "10:00", "run_at": datetime(2026, 3, 1, 10, tzinfo=timezone.utc).isoformat(),
+            }
+        ]
+    }
+
+    class Session:
+        added = []
+
+        def add(self, obj):
+            self.added.append(obj)
+
+        async def flush(self):
+            pass
+
+    from app.services.reminders import create_from_draft
+
+    session = Session()
+    created = await create_from_draft(session, user, draft, NOW)
+    assert created == []
+    assert session.added == []
+
+
+@pytest.mark.parametrize("data", ["rf:regime:" + "x" * 50, "rf:legal:bogus", "rf:regime:bogus"])
+async def test_flow_callback_rejects_unknown_values(data):
+    user = User(id=uuid.uuid4(), tz="Europe/Moscow", state={"rem": {"type": "tax", "step": "regime"}})
+    from app.models import Profile
+
+    profile = Profile(user_id=user.id, slot_confidence={})
+    response = await flows.flow_callback(object(), user, profile, data, NOW)
+    assert response.text == "Не понял команду."
+    assert profile.tax_regime is None and profile.legal_form is None

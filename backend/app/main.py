@@ -1,8 +1,10 @@
 import asyncio
+import hmac
 import logging
+import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -65,22 +67,31 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Альфа-Наставник", lifespan=lifespan)
 
 
+async def require_token(x_api_key: str | None = Header(default=None)) -> None:
+    token = get_settings().api_token
+    if token and not hmac.compare_digest((x_api_key or "").encode(), token.encode()):
+        raise HTTPException(401, "invalid api key")
+
+
+api = APIRouter(dependencies=[Depends(require_token)])
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
 
 
-@app.post("/start", response_model=ChatResponse)
+@api.post("/start", response_model=ChatResponse)
 async def start(req: ChatRequest, session: AsyncSession = Depends(session_scope)):
     return await orchestrator.handle_start(session, req)
 
 
-@app.post("/chat", response_model=ChatResponse)
+@api.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, session: AsyncSession = Depends(session_scope)):
     return await orchestrator.handle_chat(session, req)
 
 
-@app.post("/callback", response_model=ChatResponse)
+@api.post("/callback", response_model=ChatResponse)
 async def callback(req: CallbackRequest, session: AsyncSession = Depends(session_scope)):
     return await orchestrator.handle_callback(session, req)
 
@@ -91,7 +102,7 @@ class CommandRequest(BaseModel):
     name: str
 
 
-@app.post("/command", response_model=list[ChatResponse])
+@api.post("/command", response_model=list[ChatResponse])
 async def command(req: CommandRequest, session: AsyncSession = Depends(session_scope)):
     user = await get_user(session, req.tg_id, req.chat_id)
     if req.name == "help":
@@ -112,13 +123,13 @@ async def _user_or_404(session: AsyncSession, tg_id: int) -> User:
     return user
 
 
-@app.get("/users/{tg_id}/profile", response_model=ProfileOut)
+@api.get("/users/{tg_id}/profile", response_model=ProfileOut)
 async def read_profile(tg_id: int, session: AsyncSession = Depends(session_scope)):
     user = await _user_or_404(session, tg_id)
     return ProfileOut(**profile_dict(await get_profile(session, user)))
 
 
-@app.patch("/users/{tg_id}/profile", response_model=ProfileOut)
+@api.patch("/users/{tg_id}/profile", response_model=ProfileOut)
 async def patch_profile(tg_id: int, body: ProfileOut, session: AsyncSession = Depends(session_scope)):
     user = await _user_or_404(session, tg_id)
     profile = await get_profile(session, user)
@@ -127,7 +138,7 @@ async def patch_profile(tg_id: int, body: ProfileOut, session: AsyncSession = De
     return ProfileOut(**profile_dict(profile))
 
 
-@app.delete("/users/{tg_id}")
+@api.delete("/users/{tg_id}")
 async def reset_user(tg_id: int, session: AsyncSession = Depends(session_scope)):
     user = await _user_or_404(session, tg_id)
     await session.execute(delete(Event).where(Event.user_id == user.id))
@@ -135,7 +146,7 @@ async def reset_user(tg_id: int, session: AsyncSession = Depends(session_scope))
     return {"status": "deleted"}
 
 
-@app.get("/users/{tg_id}/reminders", response_model=list[ReminderOut])
+@api.get("/users/{tg_id}/reminders", response_model=list[ReminderOut])
 async def read_reminders(tg_id: int, session: AsyncSession = Depends(session_scope)):
     user = await _user_or_404(session, tg_id)
     items = await flows.list_for_user(session, user.id)
@@ -157,8 +168,8 @@ class ReminderPatch(BaseModel):
     frequency: str | None = None
 
 
-@app.patch("/reminders/{reminder_id}", response_model=ReminderOut)
-async def patch_reminder(reminder_id: str, body: ReminderPatch, session: AsyncSession = Depends(session_scope)):
+@api.patch("/reminders/{reminder_id}", response_model=ReminderOut)
+async def patch_reminder(reminder_id: uuid.UUID, body: ReminderPatch, session: AsyncSession = Depends(session_scope)):
     r = await session.get(Reminder, reminder_id)
     if r is None:
         raise HTTPException(404, "reminder not found")
@@ -175,8 +186,8 @@ async def patch_reminder(reminder_id: str, body: ReminderPatch, session: AsyncSe
     )
 
 
-@app.delete("/reminders/{reminder_id}")
-async def delete_reminder(reminder_id: str, session: AsyncSession = Depends(session_scope)):
+@api.delete("/reminders/{reminder_id}")
+async def delete_reminder(reminder_id: uuid.UUID, session: AsyncSession = Depends(session_scope)):
     r = await session.get(Reminder, reminder_id)
     if r is None:
         raise HTTPException(404, "reminder not found")
@@ -184,7 +195,7 @@ async def delete_reminder(reminder_id: str, session: AsyncSession = Depends(sess
     return {"status": "deleted"}
 
 
-@app.get("/materials/search")
+@api.get("/materials/search")
 async def materials_search(q: str, include_paid: bool = False, session: AsyncSession = Depends(session_scope)):
     hits = await search(session, q, limit=8, include_paid=include_paid)
     return [
@@ -193,9 +204,12 @@ async def materials_search(q: str, include_paid: bool = False, session: AsyncSes
     ]
 
 
-@app.get("/stats")
+@api.get("/stats")
 async def stats(session: AsyncSession = Depends(session_scope)):
     async def count(model) -> int:
         return (await session.execute(select(func.count()).select_from(model))).scalar_one()
 
     return {"materials": await count(Material), "users": await count(User), "profiles": await count(Profile)}
+
+
+app.include_router(api)
