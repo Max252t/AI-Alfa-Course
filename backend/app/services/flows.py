@@ -1,4 +1,5 @@
 import re
+import uuid
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -9,7 +10,7 @@ from app.models import Material, Profile, Reminder, User
 from app.schemas import Button, ChatResponse, rows
 from app.services import tax_calendar as tc
 from app.services.context import apply_slots, clear_keys, log_event, set_state
-from app.services.profile_rules import extract_legal_form, extract_tax_regime
+from app.services.profile_rules import LEGAL_LABELS, extract_legal_form, extract_tax_regime
 from app.services.reminders import (
     compute_next_run,
     create_from_draft,
@@ -32,6 +33,14 @@ TZ_OPTIONS = {
     "Asia/Vladivostok": "Владивосток",
 }
 
+def match_timezone(text: str) -> str | None:
+    lowered = text.strip().lower().replace("ё", "е")
+    for zone, label in TZ_OPTIONS.items():
+        if zone.lower() == lowered or label.lower().replace("ё", "е") in lowered:
+            return zone
+    return None
+
+
 def tz_label(zone: str) -> str:
     name = TZ_OPTIONS.get(zone, zone)
     offset = datetime.now(ZoneInfo(zone)).utcoffset()
@@ -47,6 +56,17 @@ CLEAN_SCHEDULE = re.compile(
     r"\b(?:каждый|каждую|каждое|каждые|раз в|ежедневно|еженедельно|ежемесячно|ежеквартально|завтра|послезавтра|сегодня)\b.*$",
     re.I,
 )
+
+
+def is_question_like(text: str) -> bool:
+    return "?" in text or len(text.split()) >= 4
+
+
+def carries_schedule(rem: dict, text: str, now: datetime, tz: str) -> bool:
+    if rem["type"] == "tax":
+        lead, send_time = parse_lead_and_time(text)
+        return lead is not None or send_time is not None
+    return not parse_schedule(text, now, tz).is_empty
 
 
 def sched_to_dict(s: Schedule) -> dict:
@@ -215,6 +235,8 @@ async def finish(session: AsyncSession, user: User, now: datetime) -> ChatRespon
     created = await create_from_draft(session, user, rem, now)
     clear_keys(user, "flow", "rem")
     if not created:
+        if rem["type"] == "tax":
+            return ChatResponse(text="Дата для этого напоминания уже прошла. Укажите актуальную дату или другой срок.")
         return ChatResponse(text="Не получилось определить время напоминания. Попробуйте ещё раз, например: «каждый понедельник в 9».")
     await log_event(session, user.id, "reminder_created", {"count": len(created), "type": rem["type"]})
     when = created[0].next_run_at.astimezone(ZoneInfo(user.tz)).strftime("%d.%m в %H:%M") if created[0].next_run_at else ""
@@ -231,6 +253,10 @@ async def flow_text(
     rem = dict(user.state["rem"])
     step = rem["step"]
     lowered = text.strip().lower()
+
+    if step in {"confirm", "edit"} and is_question_like(text) and not carries_schedule(rem, text, now, user.tz):
+        clear_keys(user, "flow", "rem")
+        return None
 
     if step == "confirm":
         if YES.match(lowered):
@@ -264,10 +290,12 @@ async def flow_text(
     elif step == "edit":
         return await apply_edit(session, user, profile, rem, text, now)
     elif step == "tz":
-        set_state(user, tz_set=True)
-        return await next_step(session, user, profile, now)
+        zone = match_timezone(text)
+        if zone:
+            rem = await change_timezone(session, user, zone, rem, now)
+            return await next_step(session, user, profile, now)
 
-    if step in {"regime", "legal", "when", "patent_date"} and ("?" in text or len(text.split()) >= 4):
+    if step in {"regime", "legal", "when", "patent_date"} and is_question_like(text):
         clear_keys(user, "flow", "rem")
         return None
     rem["tries"] = rem.get("tries", 0) + 1
@@ -279,6 +307,7 @@ async def flow_text(
         "legal": "Напишите «ИП» или «ООО».",
         "when": "Напишите, например: «каждый понедельник в 9» или «завтра в 15:00».",
         "patent_date": "Напишите дату, например: «15 июня».",
+        "tz": "Выберите пояс кнопкой или напишите город, например: «Новосибирск».",
     }
     return ChatResponse(text=hints.get(step, "Не понял. Попробуйте ещё раз."))
 
@@ -315,6 +344,30 @@ async def apply_edit(
     return await next_step(session, user, profile, now)
 
 
+async def retarget_reminders(session: AsyncSession, user: User, now: datetime) -> None:
+    for r in await list_for_user(session, user.id):
+        if not r.active:
+            continue
+        moment = compute_next_run(r, now, user.tz, user)
+        if moment is not None:
+            r.next_run_at = moment
+
+
+async def change_timezone(session: AsyncSession | None, user: User, zone: str, rem: dict, now: datetime) -> dict:
+    if zone in TZ_OPTIONS and zone != user.tz:
+        user.tz = zone
+        if session is not None:
+            await retarget_reminders(session, user, now)
+    set_state(user, tz_set=True)
+    if rem.get("schedule") and rem["type"] != "tax":
+        old = sched_from_dict(rem["schedule"])
+        if old.run_at:
+            old.run_at = old.run_at.replace(tzinfo=ZoneInfo(user.tz))
+            rem["schedule"] = sched_to_dict(old)
+            set_state(user, rem=rem)
+    return rem
+
+
 async def flow_callback(
     session: AsyncSession, user: User, profile: Profile, data: str, now: datetime
 ) -> ChatResponse:
@@ -331,23 +384,19 @@ async def flow_callback(
     if action == "edit":
         return await edit_prompt(user, rem)
     if action == "regime":
+        if parts[2] not in tc.REGIME_LABELS:
+            return ChatResponse(text="Не понял команду.")
         apply_slots(profile, {"tax_regime": parts[2]}, 0.95)
     elif action == "legal":
+        if parts[2] not in LEGAL_LABELS:
+            return ChatResponse(text="Не понял команду.")
         apply_slots(profile, {"legal_form": parts[2]}, 0.95)
     elif action == "tzmenu":
         return await ask(user, rem, "tz", "В каком часовом поясе вы живёте? Я напомню по вашему времени.", button_row(
             *[(label, f"rf:tz:{zone}") for zone, label in TZ_OPTIONS.items()]
         ))
     elif action == "tz":
-        if parts[2] in TZ_OPTIONS:
-            user.tz = parts[2]
-        set_state(user, tz_set=True)
-        if rem.get("schedule") and rem["type"] != "tax":
-            old = sched_from_dict(rem["schedule"])
-            if old.run_at:
-                old.run_at = old.run_at.replace(tzinfo=ZoneInfo(user.tz))
-                rem["schedule"] = sched_to_dict(old)
-                set_state(user, rem=rem)
+        await change_timezone(session, user, parts[2], rem, now)
     elif action == "when":
         key = parts[2]
         send = rem.get("send_time") or "10:00"
@@ -408,7 +457,11 @@ async def list_response(session: AsyncSession, user: User) -> list[ChatResponse]
 
 
 async def get_reminder(session: AsyncSession, user: User, rid: str) -> Reminder | None:
-    r = await session.get(Reminder, rid)
+    try:
+        key = uuid.UUID(rid)
+    except ValueError:
+        return None
+    r = await session.get(Reminder, key)
     return r if r and r.user_id == user.id else None
 
 
@@ -426,6 +479,12 @@ async def reminder_action(session: AsyncSession, user: User, data: str, now: dat
         r.active = not r.active
         if r.active:
             r.next_run_at = compute_next_run(r, now, user.tz, user)
+            if r.next_run_at is None:
+                r.active = False
+                return ChatResponse(
+                    text="Это напоминание уже не сработает: время прошло. Создайте новое или измените частоту.",
+                    buttons=reminder_buttons(r),
+                )
         await log_event(session, user.id, "reminder_toggled", {"active": r.active})
         return ChatResponse(
             text="Напоминание включено." if r.active else "Напоминание выключено. Включить снова можно в /reminders.",

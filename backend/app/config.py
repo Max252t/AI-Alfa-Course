@@ -8,23 +8,26 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://alfa:change_me@localhost:5432/alfa"
     id_hash_salt: str = "change_me"
+    api_token: str = ""
 
     llm_provider: str = "ollama"
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen2.5:7b"
+    ollama_model: str = "gemma3:12b"
     openai_base_url: str = ""
     openai_api_key: str = ""
     openai_model: str = ""
     gigachat_auth_key: str = ""
     gigachat_scope: str = "GIGACHAT_API_PERS"
     gigachat_model: str = "GigaChat"
+    gigachat_verify_ssl: bool = True
+    gigachat_ca_bundle: str = ""
     yandex_api_key: str = ""
     yandex_folder_id: str = ""
     yandex_model: str = "yandexgpt-lite"
 
     embedding_model: str = "intfloat/multilingual-e5-base"
     embedding_dim: int = 768
-    relevance_threshold: float = 0.6
+    relevance_threshold: float = 0.85
 
     platform_base_url: str = "https://kurs.alfabank.ru"
     linkable_kinds: str = "article,glossary,course,lesson,document,podcast,calculator"

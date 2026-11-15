@@ -8,6 +8,7 @@ from bot import api
 from bot.handlers.common import ERROR_TEXT, reply, user_lock
 
 router = Router()
+MAX_TEXT_LEN = 4000
 log = logging.getLogger(__name__)
 
 
@@ -16,7 +17,7 @@ async def on_text(message: Message) -> None:
     tg_id, chat_id = message.from_user.id, message.chat.id
     async with user_lock(tg_id), ChatActionSender.typing(bot=message.bot, chat_id=chat_id):
         try:
-            response = await api.chat(tg_id, chat_id, message.text)
+            response = await api.chat(tg_id, chat_id, message.text[:MAX_TEXT_LEN])
         except api.BackendError:
             log.exception("chat failed")
             await message.answer(ERROR_TEXT)

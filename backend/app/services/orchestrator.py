@@ -55,6 +55,10 @@ EXAMPLES_RUNNING = [
     "Как привлекать больше клиентов?",
     "Напоминай мне платить налоги",
 ]
+EXAMPLE_LABELS = {
+    "Как выбрать налоговый режим для кофейни?": "Какой выбрать налоговый режим?",
+    "Как выбрать налоговый режим для моего бизнеса?": "Какой выбрать налоговый режим?",
+}
 RUNNING_STAGES = {"running", "growth"}
 NAV_INTENTS = {"answerable", "ambiguous", "out_of_scope", "paid_guard"}
 NAV_LIMIT = 6
@@ -84,12 +88,14 @@ def examples_for(stage: str | None) -> list[str]:
 
 
 def example_buttons(stage: str | None = None) -> list[list[Button]]:
-    return rows([Button(text=t[:40], data=f"ex:{i}") for i, t in enumerate(examples_for(stage))], 1)
+    return rows([Button(text=EXAMPLE_LABELS.get(t, t), data=f"ex:{i}") for i, t in enumerate(examples_for(stage))], 1)
 
 
 def nav_push(user: User, response: ChatResponse) -> None:
     nav = list((user.state or {}).get("nav", []))
-    nav.append(response.model_dump())
+    entry = response.model_dump()
+    entry["_pending"] = (user.state or {}).get("pending")
+    nav.append(entry)
     set_state(user, nav=nav[-NAV_LIMIT:])
 
 
@@ -108,10 +114,17 @@ def go_back(user: User, stage: str | None) -> ChatResponse:
     nav = list((user.state or {}).get("nav", []))
     if len(nav) < 2:
         set_state(user, nav=[])
+        clear_keys(user, "pending")
         return ChatResponse(text="Это начало диалога. Задайте вопрос или выберите пример.", buttons=example_buttons(stage))
     nav.pop()
     set_state(user, nav=nav)
-    return with_back(user, ChatResponse(**nav[-1]))
+    entry = dict(nav[-1])
+    pending = entry.pop("_pending", None)
+    if pending is None:
+        clear_keys(user, "pending")
+    else:
+        set_state(user, pending=pending)
+    return with_back(user, ChatResponse(**entry))
 
 
 def onboarding_buttons() -> list[list[Button]]:
@@ -186,14 +199,14 @@ def feedback_buttons(with_remind: bool = True) -> list[list[Button]]:
     return result
 
 
-async def handle_chat(session: AsyncSession, req: ChatRequest) -> ChatResponse:
+async def handle_chat(session: AsyncSession, req: ChatRequest, force_answer: bool = False) -> ChatResponse:
     now = utcnow()
     user = await get_user(session, req.tg_id, req.chat_id)
     profile = await get_profile(session, user)
     masked = mask_pii(req.text.strip())
     history = await recent_history(session, user.id)
     await add_turn(session, user.id, "user", masked)
-    response, intent_name = await route(session, user, profile, masked, history, now)
+    response, intent_name = await route(session, user, profile, masked, history, now, force_answer)
     await add_turn(session, user.id, "assistant", response.text, intent_name)
     if intent_name in NAV_INTENTS:
         response = remember(user, response)
@@ -201,7 +214,7 @@ async def handle_chat(session: AsyncSession, req: ChatRequest) -> ChatResponse:
 
 
 async def route(
-    session: AsyncSession, user: User, profile: Profile, text: str, history: list[str], now
+    session: AsyncSession, user: User, profile: Profile, text: str, history: list[str], now, force_answer: bool = False
 ) -> tuple[ChatResponse, str]:
     state = user.state or {}
 
@@ -235,6 +248,8 @@ async def route(
                 return reply, "reminder_manage"
 
     intent = await classify(text, history, get_llm())
+    if force_answer and intent.intent == "ambiguous":
+        intent = Intent("answerable", intent.topic, [], intent.slots)
     slots = extract_slots(text)
     changed = apply_slots(profile, slots, 0.85)
     llm_slots = {k: v for k, v in clean_slots(intent.slots).items() if k not in slots}
@@ -461,12 +476,23 @@ async def profile_callback(session: AsyncSession, user: User, data: str) -> Chat
         conf.pop(slot, None)
         profile.slot_confidence = conf
         return ChatResponse(text=f"Очистил: {SLOT_LABELS[slot].lower()}.")
-    apply_slots(profile, {slot: value}, 1.0)
+    cleaned = clean_slots({slot: value})
+    if slot not in cleaned:
+        return ChatResponse(text="Не понял, что выбрать.")
+    apply_slots(profile, cleaned, 1.0)
     label = SLOT_OPTIONS.get(slot, {}).get(value, value)
     return ChatResponse(text=f"Записал: {SLOT_LABELS[slot].lower()} — {label}.")
 
 
 async def handle_callback(session: AsyncSession, req: CallbackRequest) -> ChatResponse:
+    try:
+        return await dispatch_callback(session, req)
+    except (ValueError, IndexError, KeyError):
+        log.warning("malformed callback data: %r", req.data[:80])
+        return ChatResponse(text="Не понял команду.")
+
+
+async def dispatch_callback(session: AsyncSession, req: CallbackRequest) -> ChatResponse:
     now = utcnow()
     user = await get_user(session, req.tg_id, req.chat_id)
     profile = await get_profile(session, user)
@@ -479,17 +505,18 @@ async def handle_callback(session: AsyncSession, req: CallbackRequest) -> ChatRe
         examples = examples_for(profile.stage)
         if idx >= len(examples):
             return ChatResponse(text="Задайте вопрос своими словами.", buttons=example_buttons(profile.stage))
+        clear_keys(user, "flow", "rem", "slot")
         return await handle_chat(session, ChatRequest(tg_id=req.tg_id, chat_id=req.chat_id, text=examples[idx]))
     if prefix == "ob":
         parts = data.split(":")
         if parts[1] == "stage":
-            apply_slots(profile, {"stage": parts[2]}, 1.0)
+            apply_slots(profile, clean_slots({"stage": parts[2]}), 1.0)
             skip = {"start"} if parts[2] in RUNNING_STAGES else set()
             buttons = rows([Button(text=label, data=f"ob:task:{key}") for key, label in TASK_LABELS.items() if key not in skip], 2)
             buttons.append([Button(text="Пропустить", data="ob:skip")])
             return ChatResponse(text="Что сейчас важнее всего?", buttons=buttons)
         if parts[1] == "task":
-            apply_slots(profile, {"main_task": parts[2]}, 1.0)
+            apply_slots(profile, clean_slots({"main_task": parts[2]}), 1.0)
         return ChatResponse(text="Спасибо! Теперь задайте вопрос или выберите пример.", buttons=example_buttons(profile.stage))
     if prefix == "clar":
         pending = state.get("pending")
@@ -501,11 +528,16 @@ async def handle_callback(session: AsyncSession, req: CallbackRequest) -> ChatRe
         if option.lower().startswith("друг"):
             return ChatResponse(text="Опишите свой вопрос подробнее, и я постараюсь помочь.")
         return await handle_chat(
-            session, ChatRequest(tg_id=req.tg_id, chat_id=req.chat_id, text=f"{pending['question']} — {option}")
+            session,
+            ChatRequest(tg_id=req.tg_id, chat_id=req.chat_id, text=f"{pending['question']} — {option}"),
+            force_answer=True,
         )
     if prefix == "slot":
         _, slot, value = data.split(":")
-        apply_slots(profile, {slot: value}, 1.0)
+        cleaned = clean_slots({slot: value})
+        if slot not in cleaned:
+            return ChatResponse(text="Не понял команду.")
+        apply_slots(profile, cleaned, 1.0)
         await log_event(session, user.id, "profile_updated", {"slots": [slot]})
         return ChatResponse(text="Спасибо, учту в следующих ответах.")
     if prefix == "fb":

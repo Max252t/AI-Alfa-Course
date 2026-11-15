@@ -157,7 +157,7 @@ async def create_from_draft(session: AsyncSession, user: User, draft: dict, now:
             active=True,
         )
         r.next_run_at = compute_next_run(r, now, user.tz, user)
-        if r.next_run_at is None and r.type != "tax":
+        if r.next_run_at is None:
             continue
         session.add(r)
         created.append(r)

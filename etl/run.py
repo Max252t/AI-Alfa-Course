@@ -50,7 +50,7 @@ def restore_source(backup: Path) -> str:
     )
     if result.returncode > 1:
         sys.exit("pg_restore завершился с ошибкой")
-    return f"postgresql://{url.username}:{url.password}@{url.host}:{url.port or 5432}/{SOURCE_DB}"
+    return url.set(drivername="postgresql", database=SOURCE_DB).render_as_string(hide_password=False)
 
 
 async def rows(conn, sql: str) -> list[dict]:
@@ -319,7 +319,8 @@ async def main() -> None:
     compute_popularity(materials, interactions)
     pending = build_chunk_rows(materials, texts)
     paid_leak = [p for m, p in pending if m.is_paid and len(p) > len(m.title) + len(m.description or "") + 5]
-    assert not paid_leak, "платный контент попал в индекс"
+    if paid_leak:
+        sys.exit("платный контент попал в индекс")
     print(f"materials={len(materials)} interactions={len(interactions)} chunks={len(pending)}", flush=True)
     async with SessionLocal() as session:
         await write_all(session, materials, interactions, pending)

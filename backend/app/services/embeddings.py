@@ -23,3 +23,7 @@ def encode_passages_sync(texts: list[str]) -> list[list[float]]:
 async def encode_query(text: str) -> list[float]:
     vectors = await asyncio.to_thread(_encode, [f"query: {text}"])
     return vectors[0]
+
+
+def warmup() -> None:
+    _model()
