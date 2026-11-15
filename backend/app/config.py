@@ -8,6 +8,7 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://alfa:change_me@localhost:5432/alfa"
     id_hash_salt: str = "change_me"
+    api_token: str = ""
 
     llm_provider: str = "ollama"
     ollama_base_url: str = "http://localhost:11434"
@@ -18,6 +19,8 @@ class Settings(BaseSettings):
     gigachat_auth_key: str = ""
     gigachat_scope: str = "GIGACHAT_API_PERS"
     gigachat_model: str = "GigaChat"
+    gigachat_verify_ssl: bool = True
+    gigachat_ca_bundle: str = ""
     yandex_api_key: str = ""
     yandex_folder_id: str = ""
     yandex_model: str = "yandexgpt-lite"

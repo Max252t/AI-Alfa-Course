@@ -9,7 +9,8 @@ class BackendError(Exception):
 
 async def request(method: str, path: str, payload: dict | None = None, timeout: float = 120) -> dict | list:
     try:
-        async with httpx.AsyncClient(base_url=settings.backend_url, timeout=timeout) as client:
+        headers = {"X-Api-Key": settings.api_token} if settings.api_token else {}
+        async with httpx.AsyncClient(base_url=settings.backend_url, timeout=timeout, headers=headers) as client:
             response = await client.request(method, path, json=payload)
             response.raise_for_status()
             return response.json()
