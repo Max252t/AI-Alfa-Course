@@ -505,6 +505,7 @@ async def dispatch_callback(session: AsyncSession, req: CallbackRequest) -> Chat
         examples = examples_for(profile.stage)
         if idx >= len(examples):
             return ChatResponse(text="Задайте вопрос своими словами.", buttons=example_buttons(profile.stage))
+        clear_keys(user, "flow", "rem", "slot")
         return await handle_chat(session, ChatRequest(tg_id=req.tg_id, chat_id=req.chat_id, text=examples[idx]))
     if prefix == "ob":
         parts = data.split(":")
